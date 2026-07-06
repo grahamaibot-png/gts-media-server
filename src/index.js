@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { addToken, removeToken } = require('./store');
 const { startWatching } = require('./watcher');
+const { getCache } = require('./cache');
 
 const app = express();
 app.use(express.json());
@@ -16,6 +17,17 @@ if (!process.env.YOUTUBE_API_KEY || !process.env.YOUTUBE_CHANNEL_ID) {
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
+});
+
+// The app polls these two endpoints instead of calling YouTube directly.
+// This server is the only thing that ever talks to YouTube's API, so
+// quota usage stays flat no matter how many people have the app open.
+app.get('/live-status', (req, res) => {
+  res.json(getCache().liveStatus);
+});
+
+app.get('/past-streams', (req, res) => {
+  res.json({ items: getCache().pastStreams });
 });
 
 app.post('/register-token', (req, res) => {
