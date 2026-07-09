@@ -3,7 +3,7 @@ const express = require('express');
 const { addToken, removeToken } = require('./store');
 const { startWatching } = require('./watcher');
 const { getCache } = require('./cache');
-const { getNextBroadcast, setNextBroadcast, clearNextBroadcast } = require('./schedule');
+const { getBroadcasts, addBroadcast, removeBroadcast } = require('./schedule');
 
 const app = express();
 app.use(express.json());
@@ -35,56 +35,79 @@ app.get('/past-streams', (req, res) => {
   res.json({ items: getCache().pastStreams });
 });
 
-// Simple browser page for setting the next scheduled broadcast - this
+// Simple browser page for queueing up scheduled broadcasts - this
 // replaces YouTube's "upcoming broadcasts" API (which has no no-key
 // public equivalent) so the 15-minute "starting soon" push still works
-// with zero Google API involvement. Bookmark this page on your phone
-// or computer: <your-server-url>/admin?secret=YOUR_ADMIN_SECRET
+// with zero Google API involvement. Add as many games as you want in
+// advance. Bookmark this page: <your-server-url>/admin?secret=YOUR_ADMIN_SECRET
 app.get('/admin', (req, res) => {
   if (ADMIN_SECRET && req.query.secret !== ADMIN_SECRET) {
     return res.status(401).send('Unauthorized. Add ?secret=YOUR_ADMIN_SECRET to the URL.');
   }
 
-        const next = getNextBroadcast();
-  res.send(`<!DOCTYPE html>
-  <html>
-  <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GTS Media - Set Next Broadcast</title>
-  <style>
-  body { font-family: -apple-system, sans-serif; max-width: 420px; margin: 40px auto; padding: 0 16px; background: #0b0b0d; color: #fff; }
-  h1 { font-size: 20px; }
-  label { display: block; margin-top: 16px; font-size: 14px; color: #ccc; }
-  input { width: 100%; box-sizing: border-box; padding: 10px; margin-top: 6px; border-radius: 8px; border: 1px solid #444; background: #1a1a1c; color: #fff; font-size: 16px; }
-  button { margin-top: 20px; width: 100%; padding: 12px; border-radius: 8px; border: none; background: #e63946; color: #fff; font-size: 16px; font-weight: 600; }
-  .current { margin-top: 24px; padding: 12px; background: #1a1a1c; border-radius: 8px; font-size: 14px; }
-  a { color: #e63946; }
-  </style>
-  </head>
-  <body>
-  <h1>Set next broadcast</h1>
-  <p>Fill this in when you schedule a stream, and the app will push a "starting soon" notification 15 minutes before kickoff - no YouTube API involved.</p>
-  <form method="POST" action="/admin/schedule?secret=${encodeURIComponent(req.query.secret || '')}">
-  <label>Game title
-  <input type="text" name="title" placeholder="GTS Media vs. Example High" required>
-  </label>
-  <label>Start time
-  <input type="datetime-local" name="scheduledStartTime" required>
-  </label>
-  <button type="submit">Save</button>
-  </form>
-  ${
-    next
-    ? `<div class="current">Currently scheduled: <strong>${next.title}</strong> at ${new Date(
-      next.scheduledStartTime
-      ).toLocaleString()}. <form method="POST" action="/admin/schedule/clear?secret=${encodeURIComponent(
-      req.query.secret || ''
-      )}" style="display:inline"><button type="submit" style="width:auto;padding:6px 12px;background:#333;">Clear</button></form></div>`
-    : '<div class="current">Nothing scheduled right now.</div>'
-  }
-  </body>
-  </html>`);
+        const secretParam = encodeURIComponent(req.query.secret || '');
+  const upcoming = getBroadcasts();
+
+        const rows = upcoming
+  .map(
+    (b) => `
+    <div class="game">
+    <div>
+    <strong>${escapeHtml(b.title)}</strong>
+    <div class="when">${new Date(b.scheduledStartTime).toLocaleString()}</div>
+    </div>
+    <form method="POST" action="/admin/schedule/remove?secret=${secretParam}">
+    <input type="hidden" name="id" value="${b.id}">
+    <button type="submit" class="remove">Remove</button>
+    </form>
+    </div>`
+    )
+  .join('');
+
+        res.send(`<!DOCTYPE html>
+        <html>
+        <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>GTS Media - Game Schedule</title>
+        <style>
+        body { font-family: -apple-system, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; background: #0b0b0d; color: #fff; }
+        h1 { font-size: 20px; }
+        h2 { font-size: 16px; margin-top: 32px; color: #ccc; }
+        label { display: block; margin-top: 16px; font-size: 14px; color: #ccc; }
+        input { width: 100%; box-sizing: border-box; padding: 10px; margin-top: 6px; border-radius: 8px; border: 1px solid #444; background: #1a1a1c; color: #fff; font-size: 16px; }
+        button { margin-top: 20px; width: 100%; padding: 12px; border-radius: 8px; border: none; background: #e63946; color: #fff; font-size: 16px; font-weight: 600; }
+        .game { margin-top: 12px; padding: 12px; background: #1a1a1c; border-radius: 8px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .when { color: #999; margin-top: 4px; }
+        .remove { margin-top: 0; width: auto; padding: 8px 12px; background: #333; font-size: 13px; }
+        .empty { margin-top: 12px; color: #999; font-size: 14px; }
+        </style>
+        </head>
+        <body>
+        <h1>Add a game</h1>
+        <p>Add every upcoming game here. The app will push a "starting soon" notification 15 minutes before each one kicks off - no YouTube API involved.</p>
+        <form method="POST" action="/admin/schedule?secret=${secretParam}">
+        <label>Game title
+        <input type="text" name="title" placeholder="GTS Media vs. Example High" required>
+        </label>
+        <label>Start time
+        <input type="datetime-local" name="scheduledStartTime" required>
+        </label>
+        <button type="submit">Add game</button>
+        </form>
+
+        <h2>Upcoming games (${upcoming.length})</h2>
+        ${upcoming.length ? rows : '<div class="empty">Nothing queued up yet.</div>'}
+        </body>
+        </html>`);
 });
+
+function escapeHtml(str) {
+  return String(str)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+}
 
 app.post('/admin/schedule', (req, res) => {
   if (ADMIN_SECRET && req.query.secret !== ADMIN_SECRET) {
@@ -94,15 +117,16 @@ app.post('/admin/schedule', (req, res) => {
   if (!title || !scheduledStartTime) {
     return res.status(400).send('title and scheduledStartTime are required');
   }
-  setNextBroadcast({ title, scheduledStartTime: new Date(scheduledStartTime).toISOString() });
+  addBroadcast({ title, scheduledStartTime: new Date(scheduledStartTime).toISOString() });
   res.redirect(`/admin?secret=${encodeURIComponent(req.query.secret || '')}`);
 });
 
-app.post('/admin/schedule/clear', (req, res) => {
+app.post('/admin/schedule/remove', (req, res) => {
   if (ADMIN_SECRET && req.query.secret !== ADMIN_SECRET) {
     return res.status(401).send('Unauthorized');
   }
-  clearNextBroadcast();
+  const { id } = req.body || {};
+  if (id) removeBroadcast(id);
   res.redirect(`/admin?secret=${encodeURIComponent(req.query.secret || '')}`);
 });
 
