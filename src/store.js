@@ -56,7 +56,7 @@ function removeToken(token) {
 function getState() {
   return readJson(STATE_FILE, {
     lastNotifiedLiveVideoId: null,
-    lastNotifiedUpcomingId: null,
+    notifiedUpcomingIds: [],
   });
 }
 
