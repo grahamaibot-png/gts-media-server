@@ -1,5 +1,5 @@
 const { getCurrentLiveVideo, getPastStreams } = require('./youtube');
-const { getNextBroadcast, clearNextBroadcast } = require('./schedule');
+const { getBroadcasts, pruneOldBroadcasts } = require('./schedule');
 const { getState, setState } = require('./store');
 const { broadcastPush } = require('./push');
 const { setLiveStatus, setPastStreams } = require('./cache');
@@ -54,34 +54,37 @@ if (tickCount === 1 || tickCount % PAST_STREAMS_REFRESH_EVERY_N_TICKS === 0) {
   }
 }
 
-// 2. 15-minutes-out check for the manually-scheduled next broadcast
-// (set via the /admin page - see index.js). This replaces YouTube's
-// "upcoming broadcasts" API, which has no no-key public equivalent.
+// 2. 15-minutes-out check for every manually-scheduled broadcast
+// (queued up via the /admin page - see index.js). This replaces
+// YouTube's "upcoming broadcasts" API, which has no no-key public
+// equivalent, and supports a whole season queued up at once.
 try {
-  const next = getNextBroadcast();
-  if (next) {
-    const now = Date.now();
-    const startsAt = new Date(next.scheduledStartTime).getTime();
+  const upcoming = pruneOldBroadcasts();
+
+  for (const broadcast of upcoming) {
+    if (state.notifiedUpcomingIds.includes(broadcast.id)) continue;
+
+  const now = Date.now();
+    const startsAt = new Date(broadcast.scheduledStartTime).getTime();
     const msUntilStart = startsAt - now;
 
-  if (
-    msUntilStart > 0 &&
-    msUntilStart <= WARNING_WINDOW_MAX_MS &&
-    state.lastNotifiedUpcomingId !== next.id
-    ) {
+  if (msUntilStart > 0 && msUntilStart <= WARNING_WINDOW_MAX_MS) {
     await broadcastPush(
       'Starting soon',
-      `GTS Media goes live in about 15 minutes: ${next.title}`,
-      { type: 'upcoming' }
+      `GTS Media goes live in about 15 minutes: ${broadcast.title}`,
+      { type: 'upcoming', videoId: broadcast.id }
       );
-    state.lastNotifiedUpcomingId = next.id;
+    state.notifiedUpcomingIds.push(broadcast.id);
     setState(state);
-    console.log(`[watcher] Sent 15-min warning for ${next.id}`);
+    console.log(`[watcher] Sent 15-min warning for ${broadcast.id}`);
+  }
   }
 
-  if (msUntilStart < -WARNING_WINDOW_MAX_MS) {
-    clearNextBroadcast();
-  }
+  const stillRelevant = new Set(upcoming.map((b) => b.id));
+  const trimmed = state.notifiedUpcomingIds.filter((id) => stillRelevant.has(id));
+  if (trimmed.length !== state.notifiedUpcomingIds.length) {
+    state.notifiedUpcomingIds = trimmed;
+    setState(state);
   }
 } catch (err) {
   console.error('[watcher] upcoming check failed:', err.message);
