@@ -1,13 +1,13 @@
 /**
- * Minimal file-based storage for device push tokens and "already
- * notified" state, so restarts don't spam duplicate notifications.
- *
- * Good enough for one channel's worth of traffic. If you outgrow this
- * (thousands of users, or your host wipes disk on restart/redeploy —
- * common on free tiers) swap this for a real database (Postgres,
- * SQLite on a persistent volume, Redis, etc.) — the rest of the code
- * only touches the functions below, so the swap is contained here.
- */
+* Minimal file-based storage for device push tokens and "already
+* notified" state, so restarts don't spam duplicate notifications.
+*
+* Good enough for one channel's worth of traffic. If you outgrow this
+* (thousands of users, or your host wipes disk on restart/redeploy -
+* common on free tiers) swap this for a real database (Postgres,
+* SQLite on a persistent volume, Redis, etc.) - the rest of the code
+* only touches the functions below, so the swap is contained here.
+*/
 const fs = require('fs');
 const path = require('path');
 
@@ -56,7 +56,7 @@ function removeToken(token) {
 function getState() {
   return readJson(STATE_FILE, {
     lastNotifiedLiveVideoId: null,
-    notifiedUpcomingIds: [],
+    lastNotifiedUpcomingId: null,
   });
 }
 
