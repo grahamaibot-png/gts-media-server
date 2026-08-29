@@ -4,6 +4,7 @@ const { addToken, removeToken } = require('./store');
 const { startWatching } = require('./watcher');
 const { getCache } = require('./cache');
 const { getBroadcasts, addBroadcast, removeBroadcast } = require('./schedule');
+const { broadcastPush } = require('./push');
 
 const app = express();
 app.use(express.json());
@@ -40,7 +41,17 @@ app.get('/past-streams', (req, res) => {
 // public equivalent) so the 15-minute "starting soon" push still works
 // with zero Google API involvement. Add as many games as you want in
 // advance. Bookmark this page: <your-server-url>/admin?secret=YOUR_ADMIN_SECRET
-app.get('/admin', (req, res) => {
+app.post('/admin/announce', (req, res) => {
+  if (ADMIN_SECRET && req.query.secret !== ADMIN_SECRET) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  const { title, body } = req.body || {};
+  if (!title || !body) {
+    return res.status(400).json({ error: 'title and body are required' });
+  }
+  broadcastPush(title, body);
+  res.json({ ok: true });
+});app.get('/admin', (req, res) => {
   if (ADMIN_SECRET && req.query.secret !== ADMIN_SECRET) {
     return res.status(401).send('Unauthorized. Add ?secret=YOUR_ADMIN_SECRET to the URL.');
   }
