@@ -12,7 +12,7 @@ function chunk(arr, size) {
 
 /** Sends the same title/body notification to every registered device. */
 async function broadcastPush(title, body, data = {}) {
-  const tokens = getTokens();
+  const tokens = await getTokens();
   if (tokens.length === 0) return;
 
   for (const batch of chunk(tokens, CHUNK_SIZE)) {
@@ -36,16 +36,17 @@ async function broadcastPush(title, body, data = {}) {
 
     const json = await res.json().catch(() => null);
     if (json && Array.isArray(json.data)) {
-      json.data.forEach((ticket, idx) => {
+      for (let idx = 0; idx < json.data.length; idx++) {
+        const ticket = json.data[idx];
         // Prune tokens Expo says are dead (app uninstalled, etc.)
         if (
           ticket.status === 'error' &&
           ticket.details &&
           ticket.details.error === 'DeviceNotRegistered'
         ) {
-          removeToken(batch[idx]);
+          await removeToken(batch[idx]);
         }
-      });
+      }
     }
   }
 }
