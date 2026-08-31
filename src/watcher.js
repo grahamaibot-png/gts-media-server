@@ -21,7 +21,7 @@ let tickCount = 0;
 * interval.
 */
 async function tick() {
-  const state = getState();
+  const state = await getState();
   tickCount += 1;
 
 // 1. Live-now check.
@@ -32,11 +32,11 @@ try {
   if (live && state.lastNotifiedLiveVideoId !== live.id) {
     await broadcastPush('GTS Media is LIVE', live.title, { type: 'live', videoId: live.id });
     state.lastNotifiedLiveVideoId = live.id;
-    setState(state);
+    await setState(state);
     console.log(`[watcher] Sent live notification for ${live.id}`);
   } else if (!live && state.lastNotifiedLiveVideoId) {
     state.lastNotifiedLiveVideoId = null;
-    setState(state);
+    await setState(state);
   }
 } catch (err) {
   console.error('[watcher] live check failed:', err.message);
@@ -75,7 +75,7 @@ try {
       { type: 'upcoming', videoId: broadcast.id }
       );
     state.notifiedUpcomingIds.push(broadcast.id);
-    setState(state);
+    await setState(state);
     console.log(`[watcher] Sent 15-min warning for ${broadcast.id}`);
   }
   }
@@ -84,7 +84,7 @@ try {
   const trimmed = state.notifiedUpcomingIds.filter((id) => stillRelevant.has(id));
   if (trimmed.length !== state.notifiedUpcomingIds.length) {
     state.notifiedUpcomingIds = trimmed;
-    setState(state);
+    await setState(state);
   }
 } catch (err) {
   console.error('[watcher] upcoming check failed:', err.message);
