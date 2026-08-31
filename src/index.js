@@ -41,7 +41,7 @@ app.get('/past-streams', (req, res) => {
 // public equivalent) so the 15-minute "starting soon" push still works
 // with zero Google API involvement. Add as many games as you want in
 // advance. Bookmark this page: <your-server-url>/admin?secret=YOUR_ADMIN_SECRET
-app.post('/admin/announce', (req, res) => {
+app.post('/admin/announce', async (req, res) => {
   if (ADMIN_SECRET && req.query.secret !== ADMIN_SECRET) {
     return res.status(401).json({ error: 'unauthorized' });
   }
@@ -49,9 +49,16 @@ app.post('/admin/announce', (req, res) => {
   if (!title || !body) {
     return res.status(400).json({ error: 'title and body are required' });
   }
-  broadcastPush(title, body);
-  res.json({ ok: true });
-});app.get('/admin', (req, res) => {
+  try {
+    await broadcastPush(title, body);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/announce] failed:', err.message);
+    res.status(500).json({ error: 'failed to send notification' });
+  }
+});
+
+app.get('/admin', (req, res) => {
   if (ADMIN_SECRET && req.query.secret !== ADMIN_SECRET) {
     return res.status(401).send('Unauthorized. Add ?secret=YOUR_ADMIN_SECRET to the URL.');
   }
@@ -141,7 +148,7 @@ app.post('/admin/schedule/remove', (req, res) => {
   res.redirect(`/admin?secret=${encodeURIComponent(req.query.secret || '')}`);
 });
 
-app.post('/register-token', (req, res) => {
+app.post('/register-token', async (req, res) => {
   const { token, secret } = req.body || {};
 
          if (SHARED_SECRET && secret !== SHARED_SECRET) {
@@ -151,15 +158,25 @@ app.post('/register-token', (req, res) => {
     return res.status(400).json({ error: 'token is required' });
   }
 
-         addToken(token);
-  res.json({ ok: true });
+         try {
+           await addToken(token);
+           res.json({ ok: true });
+         } catch (err) {
+           console.error('[register-token] failed:', err.message);
+           res.status(500).json({ error: 'failed to register token' });
+         }
 });
 
-app.post('/unregister-token', (req, res) => {
+app.post('/unregister-token', async (req, res) => {
   const { token } = req.body || {};
   if (!token) return res.status(400).json({ error: 'token is required' });
-  removeToken(token);
-  res.json({ ok: true });
+  try {
+    await removeToken(token);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[unregister-token] failed:', err.message);
+    res.status(500).json({ error: 'failed to unregister token' });
+  }
 });
 
 app.listen(PORT, () => {
