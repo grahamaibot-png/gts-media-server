@@ -1,67 +1,69 @@
 /**
-* Minimal file-based storage for device push tokens and "already
-* notified" state, so restarts don't spam duplicate notifications.
+* Device push token and "already notified" state storage, backed by
+* Upstash Redis (REST API) instead of local files.
 *
-* Good enough for one channel's worth of traffic. If you outgrow this
-* (thousands of users, or your host wipes disk on restart/redeploy -
-* common on free tiers) swap this for a real database (Postgres,
-* SQLite on a persistent volume, Redis, etc.) - the rest of the code
-* only touches the functions below, so the swap is contained here.
+* Local JSON files here got wiped every time this free-tier host
+* redeployed or spun down from inactivity, which silently
+* un-registered every phone. Upstash's free tier persists forever and
+* survives redeploys, so this swap fixes that for good.
+*
+* Needs UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN set in
+* the environment (free database at upstash.com, no credit card).
 */
-const fs = require('fs');
-const path = require('path');
+const fetch = require('node-fetch');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const TOKENS_FILE = path.join(DATA_DIR, 'tokens.json');
-const STATE_FILE = path.join(DATA_DIR, 'state.json');
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+if (!UPSTASH_URL || !UPSTASH_TOKEN) {
+  console.error('Missing UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN in environment.');
 }
 
-function readJson(file, fallback) {
-  ensureDataDir();
-  if (!fs.existsSync(file)) return fallback;
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
+async function redis(command) {
+  const res = await fetch(UPSTASH_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${UPSTASH_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(command),
+  });
+  const json = await res.json();
+  if (json.error) {
+    throw new Error(`Upstash error: ${json.error}`);
   }
-}
-
-function writeJson(file, data) {
-  ensureDataDir();
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  return json.result;
 }
 
 function getTokens() {
-  return readJson(TOKENS_FILE, []);
+  return redis(['SMEMBERS', 'tokens']).then((tokens) => tokens || []);
 }
 
 function addToken(token) {
-  const tokens = getTokens();
-  if (!tokens.includes(token)) {
-    tokens.push(token);
-    writeJson(TOKENS_FILE, tokens);
-  }
+  return redis(['SADD', 'tokens', token]);
 }
 
 function removeToken(token) {
-  const tokens = getTokens().filter((t) => t !== token);
-  writeJson(TOKENS_FILE, tokens);
+  return redis(['SREM', 'tokens', token]);
 }
 
-function getState() {
-  return readJson(STATE_FILE, {
-    lastNotifiedLiveVideoId: null,
-    notifiedUpcomingIds: [],
-  });
+const DEFAULT_STATE = {
+  lastNotifiedLiveVideoId: null,
+  notifiedUpcomingIds: [],
+};
+
+async function getState() {
+  const raw = await redis(['GET', 'state']);
+  if (!raw) return { ...DEFAULT_STATE };
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { ...DEFAULT_STATE };
+  }
 }
 
 function setState(state) {
-  writeJson(STATE_FILE, state);
+  return redis(['SET', 'state', JSON.stringify(state)]);
 }
 
 module.exports = { getTokens, addToken, removeToken, getState, setState };
